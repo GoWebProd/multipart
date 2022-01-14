@@ -35,7 +35,7 @@ func main() {
 
 	writer := multipart.NewWriter()
 
-	err = writer.CreateFormFileReader("content", "very_important_file_name", fileResp.Body)
+	err = writer.CreateFormFileReader("content", "very_important_file_name", multipart.NewReader(fileResp.Body, int(fileResp.ContentLength)))
 	if err != nil {
 		panic(errors.Wrap(err, "Can't create file form"))
 	}
@@ -45,11 +45,13 @@ func main() {
 		panic(errors.Wrap(err, "Can't write object type field"))
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "http://localhost/checkfile", writer)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "http://localhost/checkfile", nil)
 	if err != nil {
 		panic(errors.Wrap(err, "Can't create object scan request"))
 	}
 
+	req.ContentLength = int64(writer.Len())
+	req.Body = writer
 	req.Header.Add("Content-Type", writer.FormDataContentType())
 
 	resp, err := httpClient.Do(req)

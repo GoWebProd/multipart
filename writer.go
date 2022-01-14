@@ -8,6 +8,12 @@ import (
 	"strings"
 )
 
+type Reader interface {
+	io.Reader
+
+	Len() int
+}
+
 type header struct {
 	key   string
 	value string
@@ -15,7 +21,7 @@ type header struct {
 
 type part struct {
 	headers []header
-	body    io.Reader
+	body    Reader
 }
 
 // A Writer generates multipart messages.
@@ -155,7 +161,7 @@ func (w *Writer) CreateFormFile(fieldname string, filename string, data []byte) 
 
 // CreateFormFileReader creates a new form-data header with
 // the provided field name and file name and reader.
-func (w *Writer) CreateFormFileReader(fieldname string, filename string, data io.Reader) error {
+func (w *Writer) CreateFormFileReader(fieldname string, filename string, data Reader) error {
 	h := []header{
 		{"Content-Disposition", `form-data; name="` + escapeQuotes(fieldname) + `"; filename="` + escapeQuotes(filename) + `"`},
 		{"Content-Type", "application/octet-stream"},
@@ -182,7 +188,7 @@ func (w *Writer) CreateFormField(fieldname string, data []byte) error {
 
 // CreateFormFieldReader creates part with a header using the
 // given field name and reader.
-func (w *Writer) CreateFormFieldReader(fieldname string, data io.Reader) error {
+func (w *Writer) CreateFormFieldReader(fieldname string, data Reader) error {
 	h := []header{
 		{"Content-Disposition", `form-data; name="` + escapeQuotes(fieldname) + `"`},
 	}
@@ -205,8 +211,12 @@ func (w *Writer) Read(dst []byte) (int, error) {
 
 		if w.writePosition != -1 {
 			n, err := w.parts[w.writePosition].body.Read(dst)
-			if n != 0 || !errors.Is(err, io.EOF) {
-				return n, err
+			if n != 0 {
+				return n, nil
+			}
+
+			if !errors.Is(err, io.EOF) {
+				return 0, err
 			}
 
 			w.sysBuf.Reset()
@@ -240,4 +250,48 @@ func (w *Writer) Read(dst []byte) (int, error) {
 
 		w.sysBuf.WriteString("\r\n")
 	}
+}
+
+func (w *Writer) Close() error {
+	return nil
+}
+
+func (w *Writer) Len() int {
+	l := 0
+
+	for _, v := range w.parts {
+		l += 4 + len(w.boundary)
+
+		for _, p := range v.headers {
+			l += 4 + len(p.key) + len(p.value)
+		}
+
+		l += 4 + v.body.Len()
+	}
+
+	if l > 0 {
+		l += 6 + len(w.boundary)
+	}
+
+	return l
+}
+
+type readSizer struct {
+	r io.Reader
+	l int
+}
+
+func NewReader(r io.Reader, length int) Reader {
+	return &readSizer{
+		r: r,
+		l: length,
+	}
+}
+
+func (r readSizer) Read(b []byte) (int, error) {
+	return r.r.Read(b)
+}
+
+func (r readSizer) Len() int {
+	return r.l
 }

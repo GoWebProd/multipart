@@ -2,9 +2,15 @@ package multipart
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"mime/multipart"
+	"net/http"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/pkg/errors"
 )
 
 func TestCompare(t *testing.T) {
@@ -26,8 +32,6 @@ func TestCompare(t *testing.T) {
 		t.Fatalf("WriteField: %v", err)
 	}
 
-	part.Write([]byte("val"))
-
 	err = w1.Close()
 	if err != nil {
 		t.Fatalf("Close: %v", err)
@@ -36,7 +40,7 @@ func TestCompare(t *testing.T) {
 	w2 := NewWriter()
 
 	w2.SetBoundary([]byte(w1.Boundary()))
-	w2.CreateFormFile("myfile", "my-file.txt", fileContents)
+	w2.CreateFormFileReader("myfile", "my-file.txt", bytes.NewReader(fileContents))
 	w2.CreateFormField("key", []byte("val"))
 
 	var b2 bytes.Buffer
@@ -50,6 +54,56 @@ func TestCompare(t *testing.T) {
 		t.Logf("b1: %v", b1.String())
 		t.Logf("b2: %v", b2.String())
 		t.Fatal("b1 != b2")
+	}
+}
+
+func TestEicar(t *testing.T) {
+	fileReq, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://secure.eicar.org/eicar.com", nil)
+	if err != nil {
+		panic(errors.Wrap(err, "Can't create new request"))
+	}
+
+	httpClient := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	fileResp, err := httpClient.Do(fileReq)
+	if err != nil {
+		panic(errors.Wrap(err, "Can't file request"))
+	}
+
+	defer fileResp.Body.Close()
+
+	w2 := NewWriter()
+	scanID, _ := uuid.NewUUID()
+
+	err = w2.CreateFormFileReader("myfile", "my-file.txt", NewReader(fileResp.Body, int(fileResp.ContentLength)))
+	if err != nil {
+		panic(err)
+	}
+
+	err = w2.CreateFormField("scanId", []byte(scanID.String()))
+	if err != nil {
+		panic(err)
+	}
+
+	err = w2.CreateFormField("objectType", []byte("file"))
+	if err != nil {
+		panic(err)
+	}
+
+	length := w2.Len()
+
+	var b2 bytes.Buffer
+
+	_, err = io.Copy(&b2, w2)
+	if err != nil {
+		t.Fatalf("Copy: %v", err)
+	}
+
+	if b2.Len() != length {
+		t.Logf("b2: %v", b2.String())
+		t.Fatalf("b2.Len() != w2.Len(): %d != %d", b2.Len(), length)
 	}
 }
 
