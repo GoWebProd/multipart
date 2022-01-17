@@ -44,14 +44,16 @@ func main() {
 	if err != nil {
 		panic(errors.Wrap(err, "Can't write object type field"))
 	}
+	
+	defer writer.Close()
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "http://localhost/checkfile", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "http://localhost/checkfile", writer)
 	if err != nil {
 		panic(errors.Wrap(err, "Can't create object scan request"))
 	}
 
 	req.ContentLength = int64(writer.Len())
-	req.Body = writer
+	
 	req.Header.Add("Content-Type", writer.FormDataContentType())
 
 	resp, err := httpClient.Do(req)
